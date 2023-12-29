@@ -1,116 +1,137 @@
-import React, { useState, useEffect } from "react";
-import { fabric } from "fabric";
+import { useRef, useEffect, useState } from "react";
+import "./App.css";
 import * as faceapi from "face-api.js";
-import "./App.css"; // Import your CSS file for styling
+import { fabric } from "fabric";
 
-const UploadVideoComponent = () => {
-  const [video, setVideo] = useState(null);
-  const [canvas, setCanvas] = useState(null);
-  const [videoElement, setVideoElement] = useState(null);
+function App() {
+  const videoRef = useRef();
+  const canvasRef = useRef();
+  const fabricCanvasRef = useRef(null);
+  const interval = useRef();
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
-    if (video) {
-      renderVideoOnCanvas(video);
-      detectFaces(video);
+    if (!fabricCanvasRef.current) {
+      fabricCanvasRef.current = new fabric.Canvas(canvasRef.current);
     }
-  }, [video]);
+  }, []);
 
-  const handleVideoUpload = async (event) => {
-    const file = event.target.files[0];
-    const videoObject = document.createElement("video");
-    videoObject.src = URL.createObjectURL(file);
-    videoObject.onloadedmetadata = () => {
-      setVideo(videoObject);
-      setVideoElement(videoObject);
-    };
-  };
-
-  const renderVideoOnCanvas = (video) => {
-    const canvasElement = new fabric.Canvas("video-canvas", {
-      width: video.videoWidth,
-      height: video.videoHeight,
+  const drawRect = (left, top, width, height) => {
+    const rect = new fabric.Rect({
+      left,
+      top,
+      width,
+      height,
+      fill: "transparent",
+      stroke: "blue",
+      strokeWidth: 2,
     });
-    canvasElement.add(
-      new fabric.Image(video, {
-        left: 0,
-        top: 0,
-        width: video.videoWidth,
-        height: video.videoHeight,
-      })
-    );
-    setCanvas(canvasElement);
+
+    fabricCanvasRef.current.add(rect);
+    fabricCanvasRef.current.renderAll();
   };
 
-  const detectFaces = async (videoElement) => {
-    const canvasElement = document.getElementById("video-canvas");
+  const clearCanvas = () => {
+    fabricCanvasRef.current.clear();
+  };
 
-    // Load Face-api models from the public/models directory
-    await faceapi.nets.tinyFaceDetector.loadFromUri("../models");
-    await faceapi.nets.faceLandmark68Net.loadFromUri("../models");
-    await faceapi.nets.faceRecognitionNet.loadFromUri("../models");
-    await faceapi.nets.faceExpressionNet.loadFromUri("../models");
+  const handlePlayPause = () => {
+    const video = videoRef.current;
 
-    const displaySize = {
-      width: videoElement.videoWidth,
-      height: videoElement.videoHeight,
-    };
-    faceapi.matchDimensions(canvasElement, displaySize);
+    if (video.paused || video.ended) {
+      video
+        .play()
+        .then(() => {
+          loadModels();
+          setIsPlaying(true);
+        })
+        .catch((error) => {
+          console.error("Failed to start the video:", error);
+        });
+    } else {
+      video.pause();
+      setIsPlaying(false);
+      clearCanvas();
+      clearInterval(interval.current);
+    }
+  };
 
-    setInterval(async () => {
+  const loadModels = async () => {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri("/models"),
+      faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
+      faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
+      faceapi.nets.faceExpressionNet.loadFromUri("/models"),
+    ]);
+    detectFaces();
+  };
+
+  const detectFaces = () => {
+    interval.current = setInterval(async () => {
       const detections = await faceapi
-        .detectAllFaces(videoElement, new faceapi.TinyFaceDetectorOptions())
+        .detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
         .withFaceLandmarks()
-        .withFaceDescriptors()
         .withFaceExpressions();
 
-      const resizedDetections = faceapi.resizeResults(detections, displaySize);
+      clearCanvas();
 
-      // Clear canvas before drawing rectangles
-      const context = canvasElement.getContext("2d");
-      context.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-      resizedDetections.forEach((detection) => {
-        const { box } = detection.detection;
-        const drawBox = new fabric.Rect({
-          left: box.x,
-          top: box.y,
-          width: box.width,
-          height: box.height,
-          stroke: "blue", // Blue color border
-          strokeWidth: 4, // 4px width
-          fill: "transparent",
-          selectable: false,
-        });
-        canvas.add(drawBox);
+      faceapi.matchDimensions(canvasRef.current, {
+        width: videoRef.current.videoWidth,
+        height: videoRef.current.videoHeight,
       });
-    }, 100); // Adjust interval for face detection
+
+      const resized = faceapi.resizeResults(detections, {
+        width: videoRef.current.videoWidth,
+        height: videoRef.current.videoHeight,
+      });
+
+      resized.forEach(({ detection }) => {
+        const { _x, _y, _width, _height } = detection.box;
+        drawRect(_x, _y, _width, _height);
+      });
+
+      // Other drawing code for landmarks and expressions can be added here
+    }, 1000);
   };
 
-  const playPauseVideo = () => {
-    if (videoElement.paused) {
-      videoElement.play();
-    } else {
-      videoElement.pause();
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const videoURL = URL.createObjectURL(file);
+      videoRef.current.src = videoURL;
+      videoRef.current.load();
+
+      videoRef.current.onloadedmetadata = () => {
+        loadModels();
+      };
     }
   };
 
   return (
     <div className="container">
-      <input type="file" accept="video/*" onChange={handleVideoUpload} />
-      <button className="control-button" onClick={playPauseVideo}>
-        Play/Pause
-      </button>
-      {video && (
-        <div className="video-container">
-          <video controls loop ref={(ref) => setVideoElement(ref)}>
-            <source src={video.src} type="video/mp4" />
-            Your browser does not support the video tag.
-          </video>
-        </div>
-      )}
-      <canvas id="video-canvas" />
+      <div>
+        <input type="file" accept="video/*" onChange={handleFileChange} />
+        <button onClick={handlePlayPause} className="control-button">
+          {isPlaying ? "Pause" : "Play"}
+        </button>
+      </div>
+      <div className="video-container">
+        <video
+          style={{ position: "absolute" }}
+          width={450}
+          height={450}
+          crossOrigin="anonymous"
+          ref={videoRef}
+        ></video>
+        <canvas
+          style={{ position: "absolute" }}
+          ref={canvasRef}
+          width={450}
+          height={450}
+        />
+      </div>
     </div>
   );
-};
+}
 
-export default UploadVideoComponent;
+export default App;
