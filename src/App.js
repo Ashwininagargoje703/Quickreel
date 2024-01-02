@@ -89,9 +89,7 @@ function App() {
         const { _x, _y, _width, _height } = detection.box;
         drawRect(_x, _y, _width, _height);
       });
-
-      // Other drawing code for landmarks and expressions can be added here
-    }, 1000);
+    }, 500);
   };
 
   const handleFileChange = (event) => {
