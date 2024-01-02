@@ -24,7 +24,7 @@ function App() {
       height,
       fill: "transparent",
       stroke: "blue",
-      strokeWidth: 2,
+      strokeWidth: 4,
     });
 
     fabricCanvasRef.current.add(rect);
@@ -67,29 +67,45 @@ function App() {
   };
 
   const detectFaces = () => {
-    interval.current = setInterval(async () => {
-      const detections = await faceapi
-        .detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceExpressions();
+    interval.current = videoRef.current.play().then(() => {
+      setInterval(async () => {
+        const detections = await faceapi
+          .detectAllFaces(
+            videoRef.current,
+            new faceapi.TinyFaceDetectorOptions()
+          )
+          .withFaceLandmarks()
+          .withFaceExpressions();
+        canvasRef.current.innerHtml = faceapi.createCanvasFromMedia(
+          videoRef.current
+        );
 
-      clearCanvas();
+        faceapi.matchDimensions(canvasRef.current, {
+          width: videoRef.current.width,
+          height: videoRef.current.height,
+        });
+        const resized = faceapi.resizeResults(detections, {
+          width: canvasRef.current.width,
+          height: canvasRef.current.height,
+        });
+        faceapi.draw.drawDetections(canvasRef.current, resized);
+        faceapi.draw.drawFaceLandmarks(canvasRef.current, resized);
+        faceapi.draw.drawFaceExpressions(canvasRef.current, resized);
 
-      faceapi.matchDimensions(canvasRef.current, {
-        width: videoRef.current.videoWidth,
-        height: videoRef.current.videoHeight,
-      });
-
-      const resized = faceapi.resizeResults(detections, {
-        width: videoRef.current.videoWidth,
-        height: videoRef.current.videoHeight,
-      });
-
-      resized.forEach(({ detection }) => {
-        const { _x, _y, _width, _height } = detection.box;
-        drawRect(_x, _y, _width, _height);
-      });
-    }, 500);
+        resized.forEach((detection) => {
+          const { _box } = detection.detection;
+          new fabric.Rect({
+            left: _box._x,
+            top: _box._y,
+            width: _box._width,
+            height: _box._height,
+            fill: "transparent",
+            stroke: "blue",
+            strokeWidth: 2,
+          });
+        });
+      }, 1000);
+    });
   };
 
   const handleFileChange = (event) => {
